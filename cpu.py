@@ -215,6 +215,12 @@ class CPU:
 
         self._set_equal_flag(cmp_result)
 
+        self.pc += 3
+
+    def handle_jmp(self):
+        register = self.ram_read(self.pc + 1)
+        self.pc = register
+
     def handle_cmd(self, command):
         if command == HLT:
             self.hlt()
@@ -236,6 +242,10 @@ class CPU:
             self.handle_call()
         elif command == RET:
             self.handle_ret()
+        elif command == CMP:
+            self.handle_cmp()
+        elif command == JMP:
+            self.handle_jmp()
 
 
     def run(self):
