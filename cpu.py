@@ -19,18 +19,11 @@ POP = 0b01000110
 CALL = 0b01010000
 RET = 0b00010001
 
-CMDS = {
-    0b00000001: 'HLT',
-    0b10000010: 'LDI',
-    0b01000111: 'PRN',
-    0b10100010: 'MUL',
-    0b01000101: 'PUSH',
-    0b01000110: 'POP',
-    0b01010000: 'CALL',
-    0b00010001: 'RET',
-    0b10100000: 'ADD'
-}
+CMP = 0b10100111
 
+JMP = 0b01010100
+JEQ = 0b01010101
+JNE = 0b01010110
 
 class CPU:
     """Main CPU class."""
@@ -43,7 +36,28 @@ class CPU:
         # STACK POINTER
         self.reg[-1] = len(self.ram) - 1
         self.running = False
-        self.equal_flag = 0b00000000
+        # THE FLAG REGISTER
+        self.reg[-2] = 0b00000000
+        self.cmds = self._init_cmds()
+
+    def _init_cmds(self):
+        cmds = {}
+        cmds[HLT] = self.handle_halt
+        cmds[LDI] = self.ldi
+        cmds[PRN] = self.handle_print
+
+        cmds[MUL] = self.handle_mul
+        cmds[ADD] = self.handle_add
+        cmds[PUSH] = self.handle_push
+        cmds[POP] = self.handle_pop
+        cmds[CALL] = self.handle_call
+        cmds[RET] = self.handle_ret
+        cmds[CMP] = self.handle_cmp
+        cmds[JMP] = self.handle_jmp
+        cmds[JEQ] = self.handle_jeq
+        cmds[JNE] = self.handle_jne
+
+        return cmds
 
     def load(self):
         """Load a program into memory."""
@@ -71,18 +85,24 @@ class CPU:
     def ram_write(self, register, value):
         self.ram[register] = value
 
-    def alu(self, op, reg_a, reg_b):
-        """ALU operations."""
+    def get_alu_regs(self):
+        reg_a = self.ram_read(self.pc + 1)
+        reg_b = self.ram_read(self.pc + 2)
+        return reg_a, reg_b
 
-        if op == "ADD":
-            self.reg[reg_a] += self.reg[reg_b]
-        elif op == "SUB":
-            self.reg[reg_a] -= self.reg[reg_b]
-        elif op == "MUL":
-            self.reg[reg_a] *= self.reg[reg_b]
-        else:
-            raise Exception("Unsupported ALU operation")
+    def handle_mul(self):
+        reg_a, reg_b = self.get_alu_regs()
+        self.reg[reg_a] *= self.reg[reg_b]
+        self.pc += 3
 
+    def handle_add(self):
+        reg_a, reg_b = self.get_alu_regs()
+        self.reg[reg_a] += self.reg[reg_b]
+        self.pc += 3
+
+    def handle_sub(self):
+        reg_a, reg_b = self.get_alu_regs()
+        self.reg[reg_a] -= self.reg[reg_b]
         self.pc += 3
 
     def get_stack_pointer(self):
@@ -102,7 +122,7 @@ class CPU:
 
         counter = self.pc
 
-        if self.ram_read(counter) not in CMDS:
+        if self.ram_read(counter) not in self.cmds:
             print("INVALID COMMAND FOUND:")
             print(f"PC: {counter}, val: {self.ram_read(counter)}")
 
@@ -113,7 +133,7 @@ class CPU:
             self.pc,
             #self.fl,
             #self.ie,
-            CMDS[self.ram_read(self.pc)],
+            self.ram_read(self.pc),
             self.ram_read(self.pc + 1),
             self.ram_read(self.pc + 2)
         ), end='')
@@ -123,7 +143,7 @@ class CPU:
 
         print()
 
-    def hlt(self):
+    def handle_halt(self):
         print('THE PROGRAM HAS HALTED')
         self.running = False
         self.pc += 1
@@ -135,7 +155,10 @@ class CPU:
         self.reg[register] = value
         self.pc += 3
 
-    def prn(self):
+    def handle_print(self):
+        """
+        Prints the following register
+        """
         register = self.ram_read(self.pc + 1)
 
         print(self.reg[register])
@@ -151,11 +174,11 @@ class CPU:
 
     def _set_equal_flag(self, status):
         if status == 'EQ':
-            self.equal = 0b0000001
+            self.reg[-2] = 0b0000001
         elif status == 'GT':
-            self.equal = 0b0000010
+            self.reg[-2] = 0b0000010
         elif status == 'LT':
-            self.equal = 0b0000100
+            self.reg[-2] = 0b0000100
 
     def _stack_pop(self):
         """
@@ -168,13 +191,13 @@ class CPU:
         self.inc_stack_pointer()
         return val
 
-    def handle_stack_pop(self):
+    def handle_pop(self):
         register = self.ram_read(self.pc + 1)
         val = self._stack_pop()
         self.reg[register] = val
         self.pc += 2
 
-    def handle_stack_push(self):
+    def handle_push(self):
         register = self.ram_read(self.pc + 1)
         value = self.reg[register]
         self._stack_push(value)
@@ -188,22 +211,20 @@ class CPU:
 
         next_instruction = self.pc + 2
         subroutine = self.ram_read(self.pc + 1)
-        sub_address = self.reg[subroutine]
-
-        print(f"NEXT: {next_instruction}, SUB: {subroutine}, ADD: {sub_address}")
-
         self._stack_push(next_instruction)
         self.pc = self.reg[subroutine]
 
     def handle_ret(self):
-        # Pop the next instruction off of the stack
-
         next_instruction = self._stack_pop()
         self.pc = next_instruction
 
+    def is_equal_flag(self):
+        return self.reg[-2] == 1
+
     def handle_cmp(self):
-        first_value = self.ram_read(self.pc + 1)
-        second_value = self.ram_read(self.pc + 2)
+
+        first_value = self.reg[self.ram_read(self.pc + 1)]
+        second_value = self.reg[self.ram_read(self.pc + 2)]
 
         cmp_result = None
         if first_value == second_value:
@@ -213,40 +234,38 @@ class CPU:
         elif first_value < second_value:
             cmp_result = 'LT'
 
+        print(f"V1: {first_value}, V2: {second_value}, RES: {cmp_result}")
+
         self._set_equal_flag(cmp_result)
 
         self.pc += 3
 
     def handle_jmp(self):
         register = self.ram_read(self.pc + 1)
-        self.pc = register
+        self.pc = self.reg[register]
+
+    def handle_jne(self):
+        if not self.is_equal_flag():
+            self.handle_jmp()
+        else:
+            self.pc += 2
+
+    def handle_jeq(self):
+        if self.is_equal_flag():
+            self.handle_jmp()
+        else:
+            self.pc += 2
 
     def handle_cmd(self, command):
-        if command == HLT:
-            self.hlt()
-        elif command == LDI:
-            self.ldi()
-        elif command == PRN:
-            self.prn()
-        elif command == MUL:
-            self.alu('MUL', self.ram_read(self.pc + 1),
-                     self.ram_read(self.pc + 2))
-        elif command == ADD:
-            self.alu('ADD', self.ram_read(self.pc + 1), self.ram_read(self.pc +
-                                                                      2))
-        elif command == PUSH:
-            self.handle_stack_push()
-        elif command == POP:
-            self.handle_stack_pop()
-        elif command == CALL:
-            self.handle_call()
-        elif command == RET:
-            self.handle_ret()
-        elif command == CMP:
-            self.handle_cmp()
-        elif command == JMP:
-            self.handle_jmp()
+        """
+        Handles running the command
+        """
+        if command not in self.cmds:
+            print(f"UNKNOWN COMMAND: {command}")
+            sys.exit(1)
+            return 
 
+        self.cmds[command]()
 
     def run(self):
         """Run the CPU."""
@@ -255,4 +274,5 @@ class CPU:
 
         while self.running:
             command = self.ram[self.pc]
+            self.trace()
             self.handle_cmd(command)
