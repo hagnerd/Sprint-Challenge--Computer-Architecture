@@ -39,6 +39,7 @@ class CPU:
         # THE FLAG REGISTER
         self._reg[-2] = 0b00000000
         self._cmds = self._init_cmds()
+        self._alu = self._init_alu_cmds()
 
     def _init_cmds(self):
         cmds = {}
@@ -46,16 +47,26 @@ class CPU:
         cmds[LDI] = self._handle_ldi
         cmds[PRN] = self._handle_print
 
-        cmds[MUL] = self._handle_mul
-        cmds[ADD] = self._handle_add
         cmds[PUSH] = self._handle_push
         cmds[POP] = self._handle_pop
         cmds[CALL] = self._handle_call
         cmds[RET] = self._handle_ret
-        cmds[CMP] = self._handle_cmp
+
         cmds[JMP] = self._handle_jmp
         cmds[JEQ] = self._handle_jeq
         cmds[JNE] = self._handle_jne
+
+        cmds[MUL] = lambda: self._handle_alu(MUL)
+        cmds[ADD] = lambda: self._handle_alu(ADD)
+        cmds[CMP] = lambda: self._handle_alu(CMP)
+
+        return cmds
+
+    def _init_alu_cmds(self):
+        cmds = {}
+        cmds[ADD] = self._handle_add
+        cmds[MUL] = self._handle_mul
+        cmds[CMP] = self._handle_cmp
 
         return cmds
 
@@ -85,33 +96,28 @@ class CPU:
     def _ram_write(self, register, value):
         self._ram[register] = value
 
-    def get_alu_regs(self):
-        """
-        ALU operations all take the two following values in RAM, this helper
-        just gets those values for the function to operate on.
-        """
+    def _handle_mul(self, reg_a, reg_b):
+        self._reg[reg_a] *= self._reg[reg_b]
+
+    def _handle_add(self, reg_a, reg_b):
+        self._reg[reg_a] += self._reg[reg_b]
+
+    def _handle_sub(self, reg_a, reg_b):
+        self._reg[reg_a] -= self._reg[reg_b]
+
+    def _handle_alu(self, operation):
         reg_a = self._ram_read(self._pc + 1)
         reg_b = self._ram_read(self._pc + 2)
-        return reg_a, reg_b
 
-    def _handle_mul(self):
-        reg_a, reg_b = self.get_alu_regs()
-        self._reg[reg_a] *= self._reg[reg_b]
+        if operation not in self._alu:
+            raise Exception("Unsupported ALU operation")
+
+        self._alu[operation](reg_a, reg_b)
         self._pc += 3
 
-    def _handle_add(self):
-        reg_a, reg_b = self.get_alu_regs()
-        self._reg[reg_a] += self._reg[reg_b]
-        self._pc += 3
-
-    def _handle_sub(self):
-        reg_a, reg_b = self.get_alu_regs()
-        self._reg[reg_a] -= self._reg[reg_b]
-        self._pc += 3
-
-    def _handle_cmp(self):
-        first_value = self._reg[self._ram_read(self._pc + 1)]
-        second_value = self._reg[self._ram_read(self._pc + 2)]
+    def _handle_cmp(self, reg_a, reg_b):
+        first_value = self._reg[reg_a]
+        second_value = self._reg[reg_b]
 
         cmp_result = None
         if first_value == second_value:
@@ -122,8 +128,6 @@ class CPU:
             cmp_result = 'LT'
 
         self._set_equal_flag(cmp_result)
-
-        self._pc += 3
 
     def _get_stack_pointer(self):
         return self._reg[-1]
